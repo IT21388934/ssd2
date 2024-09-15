@@ -1084,68 +1084,69 @@ class Inventory {
 	
 	// purchase
 	public function listPurchase() {
-		// Validate and sanitize order column
-		$allowedColumns = ['purchase_id', 'pname', 'quantity', 'supplier_name']; // Adjust as needed
-		$orderColumn = isset($_POST['order']['0']['column']) && in_array($_POST['order']['0']['column'], $allowedColumns) 
-			? $_POST['order']['0']['column'] 
-			: 'purchase_id';
+		try {
+			// Validate and sanitize order column
+			$allowedColumns = ['purchase_id', 'pname', 'quantity', 'supplier_name']; // Adjust as needed
+			$orderColumn = isset($_POST['order']['0']['column']) && in_array($_POST['order']['0']['column'], $allowedColumns) 
+				? $_POST['order']['0']['column'] 
+				: 'purchase_id';
+			
+			// Validate and sanitize order direction
+			$orderDir = isset($_POST['order']['0']['dir']) && in_array(strtoupper($_POST['order']['0']['dir']), ['ASC', 'DESC']) 
+				? $_POST['order']['0']['dir'] 
+				: 'DESC';
 		
-		// Validate and sanitize order direction
-		$orderDir = isset($_POST['order']['0']['dir']) && in_array(strtoupper($_POST['order']['0']['dir']), ['ASC', 'DESC']) 
-			? $_POST['order']['0']['dir'] 
-			: 'DESC';
-	
-		// Prepare SQL query
-		$sqlQuery = "SELECT ph.*, p.pname, s.supplier_name 
-					 FROM " . $this->purchaseTable . " as ph
-					 INNER JOIN " . $this->productTable . " as p ON p.pid = ph.product_id 
-					 INNER JOIN " . $this->supplierTable . " as s ON s.supplier_id = ph.supplier_id";
-		
-		$sqlQuery .= " ORDER BY $orderColumn $orderDir";
-		
-		if ($_POST['length'] != -1) {
-			$start = (int)$_POST['start'];
-			$length = (int)$_POST['length'];
-			$sqlQuery .= " LIMIT ?, ?";
-		}
-		
-		if ($stmt = mysqli_prepare($this->dbConnect, $sqlQuery)) {
+			// Prepare SQL query
+			$sqlQuery = "SELECT ph.*, p.pname, s.supplier_name 
+						 FROM " . $this->purchaseTable . " as ph
+						 INNER JOIN " . $this->productTable . " as p ON p.pid = ph.product_id 
+						 INNER JOIN " . $this->supplierTable . " as s ON s.supplier_id = ph.supplier_id
+						 ORDER BY $orderColumn $orderDir";
+			
 			if ($_POST['length'] != -1) {
-				// Bind limit parameters if applicable
-				mysqli_stmt_bind_param($stmt, 'ii', $start, $length);
+				$start = (int)$_POST['start'];
+				$length = (int)$_POST['length'];
+				$sqlQuery .= " LIMIT :start, :length";
+			}
+	
+			// Prepare and execute the query
+			$stmt = $this->dbConnect->prepare($sqlQuery);
+			
+			if ($_POST['length'] != -1) {
+				$stmt->bindParam(':start', $start, PDO::PARAM_INT);
+				$stmt->bindParam(':length', $length, PDO::PARAM_INT);
 			}
 			
-			mysqli_stmt_execute($stmt);
-			$result = mysqli_stmt_get_result($stmt);
-			$numRows = mysqli_num_rows($result);
-			$purchaseData = array(); 
-		
-			while ($purchase = mysqli_fetch_assoc($result)) {
+			$stmt->execute();
+			$purchaseData = array();
+			
+			while ($purchase = $stmt->fetch(PDO::FETCH_ASSOC)) {
 				$productRow = array();
-				$productRow[] = $purchase['purchase_id'];
-				$productRow[] = $purchase['pname'];
-				$productRow[] = $purchase['quantity'];            
-				$productRow[] = $purchase['supplier_name'];            
-				$productRow[] = '<div class="btn-group btn-group-sm"><button type="button" name="update" id="'.$purchase["purchase_id"].'" class="btn btn-primary btn-sm rounded-0  update" title="Update"><i class="fa fa-edit"></i></button><button type="button" name="delete" id="'.$purchase["purchase_id"].'" class="btn btn-danger btn-sm rounded-0  delete" title="Delete"><i class="fa fa-trash"></i></button></div>';
+				$productRow[] = htmlspecialchars($purchase['purchase_id'], ENT_QUOTES, 'UTF-8');
+				$productRow[] = htmlspecialchars($purchase['pname'], ENT_QUOTES, 'UTF-8');
+				$productRow[] = htmlspecialchars($purchase['quantity'], ENT_QUOTES, 'UTF-8');
+				$productRow[] = htmlspecialchars($purchase['supplier_name'], ENT_QUOTES, 'UTF-8');
+				$productRow[] = '<div class="btn-group btn-group-sm"><button type="button" name="update" id="'.htmlspecialchars($purchase["purchase_id"], ENT_QUOTES, 'UTF-8').'" class="btn btn-primary btn-sm rounded-0 update" title="Update"><i class="fa fa-edit"></i></button><button type="button" name="delete" id="'.htmlspecialchars($purchase["purchase_id"], ENT_QUOTES, 'UTF-8').'" class="btn btn-danger btn-sm rounded-0 delete" title="Delete"><i class="fa fa-trash"></i></button></div>';
 				$purchaseData[] = $productRow;
 			}
-	
-			// For total records
-			$totalQuery = "SELECT COUNT(*) FROM " . $this->purchaseTable;
-			$totalResult = mysqli_query($this->dbConnect, $totalQuery);
-			$totalRecords = mysqli_fetch_array($totalResult)[0];
 			
+			// Total records query
+			$totalQuery = "SELECT COUNT(*) FROM " . $this->purchaseTable;
+			$totalStmt = $this->dbConnect->query($totalQuery);
+			$totalRecords = $totalStmt->fetchColumn();
+			
+			// Output the result
 			$output = array(
 				"draw" => intval($_POST["draw"]),
 				"recordsTotal" => $totalRecords,
-				"recordsFiltered" => $numRows,
+				"recordsFiltered" => count($purchaseData),
 				"data" => $purchaseData
 			);
 			
 			echo json_encode($output);
-			mysqli_stmt_close($stmt);
-		} else {
-			echo 'Database error: ' . mysqli_error($this->dbConnect);
+			
+		} catch (PDOException $e) {
+			echo 'Database error: ' . htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
 		}
 	}
 	
